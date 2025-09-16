@@ -26,7 +26,7 @@ A **React Native** app using **Expo** and **react-native-maps** that allows user
 ## 📱 Screenshots
 
 | Map View | Add Place Modal | No Saved Places List | Saved Places List |
-|----------|----------------|-----------------|
+|----------|----------------|--------------------|-----------------|
 | ![Map](image/Map.jpeg) | ![Modal](image/Modal.jpeg) | ![No List](image/No%20List.jpeg) | ![List](image/List.jpeg) |
 
 ---
