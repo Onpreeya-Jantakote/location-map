@@ -30,3 +30,21 @@ A **React Native** app using **Expo** and **react-native-maps** that allows user
 | ![Map](image/Map.jpeg) | ![Modal](image/Modal.jpeg) | ![No List](image/No%20List.jpeg) | ![List](image/List.jpeg) |
 
 ---
+
+## 🚀 Installation
+
+```bash
+# Install Expo CLI if not installed
+npm install -g expo-cli
+
+# Clone repository
+git clone https://github.com/Onpreeya-Jantakote/location-map.git
+cd location-map
+
+# Install dependencies
+npm install
+
+# Start Expo
+npx expo start
+
+# Scan QR code with Expo Go (iOS/Android) to run
