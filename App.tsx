@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useRef, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -11,25 +11,18 @@ import {
   Platform,
   StatusBar,
 } from "react-native";
-import MapView, { Marker, PROVIDER_DEFAULT, Circle } from "react-native-maps";
+import MapView, { Marker, PROVIDER_DEFAULT, Circle, MapPressEvent } from "react-native-maps";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 
-type SavedPlace = {
-  id: string;
-  latitude: number;
-  longitude: number;
-  name: string;
-  description: string;
-};
+import { SavedPlace, Coordinate } from "./types";
+import { useLocation } from "./useLocation";
 
 export default function App() {
-  const mapRef = useRef<MapView | null>(null);
-  const [location, setLocation] = useState<Location.LocationObject | null>(
-    null
-  );
+  const mapRef = useRef<MapView>(null);
+  const { location } = useLocation();
   const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>([]);
-  const [region, setRegion] = useState({
+  const [initialRegion] = useState({
     latitude: 17.803266,
     longitude: 102.747888,
     latitudeDelta: 0.01,
@@ -40,33 +33,15 @@ export default function App() {
   const [listModalVisible, setListModalVisible] = useState(false);
   const [newPlaceName, setNewPlaceName] = useState("");
   const [newPlaceDesc, setNewPlaceDesc] = useState("");
+  const [selectedLocation, setSelectedLocation] = useState<Coordinate | null>(null);
+  const [isTracking, setIsTracking] = useState(true);
 
-  // Track user location in real-time
-  useEffect(() => {
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permission Denied", "Cannot access location.");
-        return;
-      }
-
-      await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 3000,
-          distanceInterval: 5,
-        },
-        (loc) => {
-          setLocation(loc);
-          setRegion((prev) => ({
-            ...prev,
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-          }));
-        }
-      );
-    })();
-  }, []);
+  const handleMapPress = (event: MapPressEvent) => {
+    const { coordinate } = event.nativeEvent;
+    setSelectedLocation(coordinate);
+    setAddModalVisible(true);
+    setIsTracking(false);
+  };
 
   const recenterMap = () => {
     if (mapRef.current && location) {
@@ -79,26 +54,32 @@ export default function App() {
         },
         1000
       );
+      setIsTracking(true);
     }
   };
 
   const saveCurrentPlace = () => {
-    if (!location) return;
+    if (!selectedLocation && !location) return;
     if (!newPlaceName.trim()) {
       Alert.alert("Missing Name", "Please enter a name.");
       return;
     }
+    
+    const targetLocation = selectedLocation || {
+      latitude: location!.coords.latitude,
+      longitude: location!.coords.longitude
+    };
+    
     const newPlace: SavedPlace = {
       id: Date.now().toString(),
-      latitude: location.coords.latitude,
-      longitude: location.coords.longitude,
+      latitude: targetLocation.latitude,
+      longitude: targetLocation.longitude,
       name: newPlaceName,
       description: newPlaceDesc,
     };
+    
     setSavedPlaces((prev) => [...prev, newPlace]);
-    setAddModalVisible(false);
-    setNewPlaceName("");
-    setNewPlaceDesc("");
+    closeAddModal();
   };
 
   const goToPlace = (place: SavedPlace) => {
@@ -113,6 +94,7 @@ export default function App() {
         },
         1000
       );
+      setIsTracking(false);
     }
   };
 
@@ -122,8 +104,7 @@ export default function App() {
       {
         text: "Delete",
         style: "destructive",
-        onPress: () =>
-          setSavedPlaces((prev) => prev.filter((p) => p.id !== id)),
+        onPress: () => setSavedPlaces((prev) => prev.filter((p) => p.id !== id)),
       },
     ]);
   };
@@ -133,9 +114,124 @@ export default function App() {
     if (!place) return;
     setNewPlaceName(place.name);
     setNewPlaceDesc(place.description);
+    setSelectedLocation({latitude: place.latitude, longitude: place.longitude});
     setAddModalVisible(true);
     setSavedPlaces((prev) => prev.filter((p) => p.id !== id));
+    setIsTracking(false);
   };
+
+  const closeAddModal = () => {
+    setAddModalVisible(false);
+    setSelectedLocation(null);
+    setNewPlaceName("");
+    setNewPlaceDesc("");
+  };
+
+  // Render User Marker
+  const renderUserMarker = () => {
+    if (!location) return null;
+
+    return (
+      <>
+        {isTracking && (
+          <Circle
+            center={{
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            }}
+            radius={20}
+            strokeColor="rgba(66,133,244,0.5)"
+            fillColor="rgba(66,133,244,0.3)"
+          />
+        )}
+        <Marker
+          coordinate={{
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          }}
+          title="You are here"
+          description="Current Location"
+          pinColor="#4285F4"
+        />
+      </>
+    );
+  };
+
+  // Render Selected Location Marker
+  const renderSelectedLocationMarker = () => {
+    if (!selectedLocation) return null;
+
+    return (
+      <Marker
+        coordinate={selectedLocation}
+        pinColor="#FBBC05"
+      />
+    );
+  };
+
+  // Render Saved Places Markers
+  const renderSavedPlacesMarkers = () => {
+    return savedPlaces.map((place) => (
+      <Marker
+        key={place.id}
+        coordinate={{
+          latitude: place.latitude,
+          longitude: place.longitude,
+        }}
+        title={place.name}
+        description={place.description}
+        pinColor="#34A853"
+      />
+    ));
+  };
+
+  // Render List Item
+  const renderListItem = ({ item }: { item: SavedPlace }) => (
+    <View style={styles.listItem}>
+      <TouchableOpacity
+        style={styles.listItemContent}
+        onPress={() => goToPlace(item)}
+      >
+        <View style={styles.listItemIcon}>
+          <Ionicons name="location" size={20} color="#34A853" />
+        </View>
+        <View style={styles.listItemText}>
+          <Text style={styles.listItemTitle}>{item.name}</Text>
+          {item.description ? (
+            <Text
+              style={styles.listItemSubtitle}
+              numberOfLines={1}
+            >
+              {item.description}
+            </Text>
+          ) : null}
+        </View>
+      </TouchableOpacity>
+
+      <View style={styles.listItemActions}>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => editPlace(item.id)}
+        >
+          <Ionicons
+            name="create-outline"
+            size={18}
+            color="#5f6368"
+          />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => deletePlace(item.id)}
+        >
+          <Ionicons
+            name="trash-outline"
+            size={18}
+            color="#ea4335"
+          />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
@@ -149,50 +245,13 @@ export default function App() {
         ref={mapRef}
         provider={PROVIDER_DEFAULT}
         style={styles.map}
-        region={region}
+        initialRegion={initialRegion}
         showsUserLocation={false}
-        onRegionChangeComplete={(r) => setRegion(r)}
+        onPress={handleMapPress}
       >
-        {/* User location marker */}
-        {location && (
-          <>
-            {/* Blue dot circle */}
-            <Circle
-              center={{
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
-              }}
-              radius={20} 
-              strokeColor="rgba(66,133,244,0.5)"
-              fillColor="rgba(66,133,244,0.3)"
-            />
-
-            {/* Marker */}
-            <Marker
-              coordinate={{
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
-              }}
-              title="You are here"
-              description="Current Location"
-              pinColor="#4285F4"
-            />
-          </>
-        )}
-
-        {/* Saved places */}
-        {savedPlaces.map((place) => (
-          <Marker
-            key={place.id}
-            coordinate={{
-              latitude: place.latitude,
-              longitude: place.longitude,
-            }}
-            title={place.name}
-            description={place.description}
-            pinColor="#34A853"
-          />
-        ))}
+        {renderUserMarker()}
+        {renderSelectedLocationMarker()}
+        {renderSavedPlacesMarkers()}
       </MapView>
 
       {/* Floating Action Buttons */}
@@ -200,12 +259,15 @@ export default function App() {
         style={[styles.fab, styles.recenterFab]}
         onPress={recenterMap}
       >
-        <Ionicons name="locate" size={24} color="#4285F4" />
+        <Ionicons name="locate" size={24} color={isTracking ? "#4285F4" : "#5f6368"} />
       </TouchableOpacity>
 
       <TouchableOpacity
         style={[styles.fab, styles.addFab]}
-        onPress={() => setAddModalVisible(true)}
+        onPress={() => {
+          setSelectedLocation(null);
+          setAddModalVisible(true);
+        }}
       >
         <Ionicons name="add" size={28} color="white" />
       </TouchableOpacity>
@@ -217,18 +279,28 @@ export default function App() {
         <Ionicons name="list" size={24} color="#4285F4" />
       </TouchableOpacity>
 
+      {/* Tracking status indicator */}
+      <View style={styles.trackingStatus}>
+        <View style={[styles.statusDot, { backgroundColor: isTracking ? '#34A853' : '#EA4335' }]} />
+        <Text style={styles.statusText}>
+          {isTracking ? 'Tracking active' : 'Tracking paused'}
+        </Text>
+      </View>
+
       {/* Add Place Modal */}
       <Modal
         visible={addModalVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setAddModalVisible(false)}
+        onRequestClose={closeAddModal}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Save Location</Text>
-              <TouchableOpacity onPress={() => setAddModalVisible(false)}>
+              <Text style={styles.modalTitle}>
+                {selectedLocation ? "Save Selected Location" : "Save Current Location"}
+              </Text>
+              <TouchableOpacity onPress={closeAddModal}>
                 <Ionicons name="close" size={24} color="#5f6368" />
               </TouchableOpacity>
             </View>
@@ -255,7 +327,7 @@ export default function App() {
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.button, styles.cancelButton]}
-                onPress={() => setAddModalVisible(false)}
+                onPress={closeAddModal}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
@@ -291,59 +363,14 @@ export default function App() {
                 <Ionicons name="pin-outline" size={48} color="#dadce0" />
                 <Text style={styles.emptyStateText}>No saved locations</Text>
                 <Text style={styles.emptyStateSubtext}>
-                  Tap the + button to save your first location
+                  Tap the + button or tap on the map to save your first location
                 </Text>
               </View>
             ) : (
               <FlatList
                 data={savedPlaces}
                 keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <View style={styles.listItem}>
-                    <TouchableOpacity
-                      style={styles.listItemContent}
-                      onPress={() => goToPlace(item)}
-                    >
-                      <View style={styles.listItemIcon}>
-                        <Ionicons name="location" size={20} color="#34A853" />
-                      </View>
-                      <View style={styles.listItemText}>
-                        <Text style={styles.listItemTitle}>{item.name}</Text>
-                        {item.description ? (
-                          <Text
-                            style={styles.listItemSubtitle}
-                            numberOfLines={1}
-                          >
-                            {item.description}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </TouchableOpacity>
-
-                    <View style={styles.listItemActions}>
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={() => editPlace(item.id)}
-                      >
-                        <Ionicons
-                          name="create-outline"
-                          size={18}
-                          color="#5f6368"
-                        />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={() => deletePlace(item.id)}
-                      >
-                        <Ionicons
-                          name="trash-outline"
-                          size={18}
-                          color="#ea4335"
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
+                renderItem={renderListItem}
                 style={styles.list}
               />
             )}
@@ -362,8 +389,6 @@ const styles = StyleSheet.create({
   map: {
     flex: 1,
   },
-
-  // Floating Action Buttons - ปรับตำแหน่งให้ห่างจากขอบมากขึ้น
   fab: {
     position: "absolute",
     right: 20,
@@ -383,7 +408,7 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   recenterFab: {
-    top: Platform.OS === "ios" ? 60 : 30, // ปรับตาม platform
+    top: Platform.OS === "ios" ? 60 : 30,
   },
   addFab: {
     bottom: 120,
@@ -392,8 +417,35 @@ const styles = StyleSheet.create({
   listFab: {
     bottom: 40,
   },
-
-  // Modal Styles
+  trackingStatus: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 60 : 30,
+    left: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "white",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 6,
+  },
+  statusText: {
+    fontSize: 12,
+    color: "#5f6368",
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
@@ -469,8 +521,6 @@ const styles = StyleSheet.create({
     color: "white",
     fontWeight: "500",
   },
-
-  // List Styles
   list: {
     paddingHorizontal: 8,
   },
@@ -509,8 +559,6 @@ const styles = StyleSheet.create({
     padding: 8,
     marginLeft: 4,
   },
-
-  // Empty State
   emptyState: {
     padding: 40,
     alignItems: "center",
